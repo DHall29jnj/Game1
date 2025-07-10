@@ -3,9 +3,34 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import sys
+import yaml
+
+
+
+# Load calibration data
+calibration_file = "calibration_matrix.yaml"
+camera_matrix = None
+dist_coeffs = None
+
+try:
+        with open('calibration_params.yml', 'r') as f:
+            calibration_data = yaml.safe_load(f)
+
+        cam_matrix = np.array(calibration_data['camera_matrix'], dtype=np.float32)
+        dist_coeffs = np.array(calibration_data['dist_coeff'], dtype=np.float32)
+
+        print("Camera calibration parameters loaded successfully.")
+        print("Camera matrix:\n", cam_matrix)
+        print("Distortion coefficients:\n", dist_coeffs)
+
+except FileNotFoundError:
+        print("Error: calibration_params.yml not found. Please run the calibration script first.")
+        exit()
+except yaml.YAMLError as e:
+        print("Error loading YAML file:", e)
+        exit()
 
 # Assume HandTracking class is defined here or imported from config_manager.py
-# (Use the corrected HandTracking class without main() nested inside)
 class HandTracking:
     def __init__(self, max_num_hands: int = 2,
                  min_detection_confidence: float = 0.5,
@@ -82,8 +107,19 @@ while running:
         print("Failed to grab frame")
         break # Exit the loop if frame capture fails
 
-    # Flip the frame for a "selfie" view (optional)
-    frame = cv2.flip(frame, 1)
+    if camera_matrix is not None and dist_coeffs is not None:
+            # It's usually beneficial to get the optimal new camera matrix to refine the result
+            # based on a free scaling parameter. alpha=0 gives minimum unwanted pixels, alpha=1 retains all.
+            h, w = frame.shape[:2]
+            newcameramtx, roi = cv2.getOptimalNewCameraMatrix(camera_matrix, dist_coeffs, (w, h), 1, (w, h))
+            undistorted_frame = cv2.undistort(frame, camera_matrix, dist_coeffs, None, newcameramtx)
+            # Crop the image to remove black borders caused by undistortion if using alpha=0
+            x, y, w_roi, h_roi = roi
+            undistorted_frame = undistorted_frame[y:y+h_roi, x:x+w_roi]
+    else:
+            undistorted_frame = frame # Use original frame if no calibration data
+
+    
 
     # Process hand tracking
     hand_landmarks_list = hand_tracker.process(frame)
